@@ -2708,7 +2708,9 @@
         "zoomIn": "Vergrößern",
         "zoomOut": "Verkleinern",
         "range": "{start} → {end} ({duration})",
-        "rangePicker": "Zeitraum ändern"
+        "rangePicker": "Zeitraum ändern",
+        "rangeSliderStart": "Anfang des sichtbaren Zeitraums",
+        "rangeSliderEnd": "Ende des sichtbaren Zeitraums"
       },
       "row": {
         "openOwnPage": "Diese Seite öffnen",
