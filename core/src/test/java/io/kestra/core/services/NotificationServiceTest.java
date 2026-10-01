@@ -2,7 +2,8 @@ package io.kestra.core.services;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.Optional;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.junit.jupiter.api.Test;
@@ -10,6 +11,8 @@ import org.junit.jupiter.api.Test;
 import io.kestra.core.exceptions.NotFoundException;
 import io.kestra.core.models.notifications.CoreNotificationType;
 import io.kestra.core.models.notifications.Notification;
+import io.kestra.core.models.notifications.NotificationItemOutcome;
+import io.kestra.core.repositories.NotificationItemRepositoryInterface;
 import io.kestra.core.repositories.NotificationRepositoryInterface;
 import io.kestra.core.server.AsyncOperationType;
 import io.kestra.core.tenant.TenantService;
@@ -29,6 +32,9 @@ public abstract class NotificationServiceTest {
 
     @Inject
     private NotificationRepositoryInterface notificationRepository;
+
+    @Inject
+    private NotificationItemRepositoryInterface notificationItemRepository;
 
     @Test
     void shouldCreateUnreadNotificationGivenNotify() {
@@ -50,79 +56,75 @@ public abstract class NotificationServiceTest {
     }
 
     @Test
-    void shouldInitializeProgressCountersGivenNotifyWithTotalItems() {
-        String userId = TestsUtils.randomString(this.getClass().getSimpleName());
+    void shouldCreatePendingItemsGivenNotifyAsyncOperation() {
+        notificationService.notifyAsyncOperation("op-items-1", AsyncOperationType.EXECUTION_KILL, List.of("res-1", "res-2", "res-3"));
 
-        Notification notification = notificationService.notify(userId, "tenantA", CoreNotificationType.ASYNC_OPERATION, "title", "op-1", 5);
+        Notification notification = notificationRepository.findByOperationId("op-items-1").orElseThrow();
+        Map<NotificationItemOutcome, Long> counts = notificationItemRepository.countByOperationId(notification.getTenantId(), "op-items-1");
 
-        assertThat(notification.getTotalItems()).isEqualTo(5);
-        assertThat(notification.getSucceededItems()).isEqualTo(0);
+        assertThat(counts.get(NotificationItemOutcome.PENDING)).isEqualTo(3L);
+    }
+
+    @Test
+    void shouldProjectProgressOntoNotificationGivenFindByUser() {
+        notificationService.notifyAsyncOperation("op-items-2", AsyncOperationType.EXECUTION_KILL, List.of("res-1", "res-2"));
+        notificationService.recordAsyncOperationItemOutcome("op-items-2", "res-1", NotificationItemOutcome.SUCCEEDED);
+
+        List<Notification> notifications = notificationService.findByUser(CurrentUserProvider.DEFAULT_USER_ID, Set.of(TenantService.MAIN_TENANT), null, 50);
+        Notification notification = notifications.stream()
+            .filter(n -> "op-items-2".equals(n.getReferenceId()))
+            .findFirst()
+            .orElseThrow();
+
+        assertThat(notification.getTotalItems()).isEqualTo(2);
+        assertThat(notification.getSucceededItems()).isEqualTo(1);
         assertThat(notification.getFailedItems()).isEqualTo(0);
     }
 
     @Test
-    void shouldUpdateExistingNotificationGivenUpdateProgressWithMatchingCorrelationKey() {
-        String userId = TestsUtils.randomString(this.getClass().getSimpleName());
-        notificationService.notify(userId, null, CoreNotificationType.GENERIC, "title", "op-1");
+    void shouldFlipItemOutcomeGivenRecordAsyncOperationItemOutcome() {
+        notificationService.notifyAsyncOperation("op-outcome-1", AsyncOperationType.EXECUTION_KILL, List.of("res-1"));
 
-        Notification updated = notificationService.updateProgress(userId, CoreNotificationType.GENERIC, "op-1", 2, 5, 7);
+        notificationService.recordAsyncOperationItemOutcome("op-outcome-1", "res-1", NotificationItemOutcome.SUCCEEDED);
 
-        assertThat(updated.getSucceededItems()).isEqualTo(2);
-        assertThat(updated.getFailedItems()).isEqualTo(5);
-        assertThat(updated.getTotalItems()).isEqualTo(7);
-
-        Optional<Notification> reloaded = notificationRepository.findByUserTypeAndReferenceId(userId, CoreNotificationType.GENERIC.key(), "op-1");
-        assertThat(reloaded).isPresent();
-        assertThat(reloaded.get().getSucceededItems()).isEqualTo(2);
+        Notification notification = notificationRepository.findByOperationId("op-outcome-1").orElseThrow();
+        Map<NotificationItemOutcome, Long> counts = notificationItemRepository.countByOperationId(notification.getTenantId(), "op-outcome-1");
+        assertThat(counts.get(NotificationItemOutcome.SUCCEEDED)).isEqualTo(1L);
+        assertThat(counts.getOrDefault(NotificationItemOutcome.PENDING, 0L)).isEqualTo(0L);
     }
 
     @Test
-    void shouldThrowNotFoundGivenUpdateProgressWithoutMatchingNotification() {
-        String userId = TestsUtils.randomString(this.getClass().getSimpleName());
+    void shouldNoOpGivenRecordAsyncOperationItemOutcomeForUnknownResource() {
+        notificationService.notifyAsyncOperation("op-outcome-2", AsyncOperationType.EXECUTION_KILL, List.of("res-1"));
 
-        assertThatThrownBy(() -> notificationService.updateProgress(userId, CoreNotificationType.GENERIC, "unknown-ref", 1, 2, 3))
-            .isInstanceOf(NotFoundException.class);
+        notificationService.recordAsyncOperationItemOutcome("op-outcome-2", "unknown-resource", NotificationItemOutcome.SUCCEEDED);
+
+        Notification notification = notificationRepository.findByOperationId("op-outcome-2").orElseThrow();
+        Map<NotificationItemOutcome, Long> counts = notificationItemRepository.countByOperationId(notification.getTenantId(), "op-outcome-2");
+        assertThat(counts.get(NotificationItemOutcome.PENDING)).isEqualTo(1L);
     }
 
     @Test
-    void shouldAccumulateCountersGivenIncrementSucceededAndFailedItems() {
-        String userId = TestsUtils.randomString(this.getClass().getSimpleName());
-        notificationService.notify(userId, "tenantA", CoreNotificationType.ASYNC_OPERATION, "title", "op-increment", 3);
-
-        notificationService.incrementAsyncOperationSucceededItems("op-increment", 1);
-        notificationService.incrementAsyncOperationSucceededItems("op-increment", 1);
-        notificationService.incrementAsyncOperationFailedItems("op-increment", 1);
-
-        Notification reloaded = notificationRepository.findByOperationId("op-increment").orElseThrow();
-        assertThat(reloaded.getSucceededItems()).isEqualTo(2);
-        assertThat(reloaded.getFailedItems()).isEqualTo(1);
-        assertThat(reloaded.getTotalItems()).isEqualTo(3);
-    }
-
-    @Test
-    void shouldThrowNotFoundGivenIncrementItemsWithoutMatchingNotification() {
-        assertThatThrownBy(() -> notificationService.incrementAsyncOperationSucceededItems("unknown-op", 1))
-            .isInstanceOf(NotFoundException.class);
-        assertThatThrownBy(() -> notificationService.incrementAsyncOperationFailedItems("unknown-op", 1))
+    void shouldThrowNotFoundGivenRecordAsyncOperationItemOutcomeWithoutMatchingNotification() {
+        assertThatThrownBy(() -> notificationService.recordAsyncOperationItemOutcome("unknown-op", "res-1", NotificationItemOutcome.SUCCEEDED))
             .isInstanceOf(NotFoundException.class);
     }
 
     @Test
     void shouldNotifyCurrentUserWithHumanizedTitleGivenOnAsyncOperationCreated() {
         // EXECUTION_FORCE_RUN exercises a multi-word enum name, unlike EXECUTION_KILL below.
-        notificationService.notifyAsyncOperation("op-created-1", AsyncOperationType.EXECUTION_FORCE_RUN, 3);
+        notificationService.notifyAsyncOperation("op-created-1", AsyncOperationType.EXECUTION_FORCE_RUN, List.of("res-1", "res-2", "res-3"));
 
         Notification notification = notificationRepository.findByOperationId("op-created-1").orElseThrow();
         assertThat(notification.getUserId()).isEqualTo(CurrentUserProvider.DEFAULT_USER_ID);
         assertThat(notification.getTenantId()).isEqualTo(TenantService.MAIN_TENANT);
         assertThat(notification.getType()).isEqualTo(CoreNotificationType.ASYNC_OPERATION.key());
         assertThat(notification.getTitle()).isEqualTo("Execution force run requested for 3 items");
-        assertThat(notification.getTotalItems()).isEqualTo(3);
     }
 
     @Test
     void shouldUseSingularWordingForASingleItemGivenOnAsyncOperationCreated() {
-        notificationService.notifyAsyncOperation("op-created-2", AsyncOperationType.EXECUTION_KILL, 1);
+        notificationService.notifyAsyncOperation("op-created-2", AsyncOperationType.EXECUTION_KILL, List.of("res-1"));
 
         Notification notification = notificationRepository.findByOperationId("op-created-2").orElseThrow();
         assertThat(notification.getTitle()).isEqualTo("Execution kill requested for 1 item");
@@ -179,6 +181,21 @@ public abstract class NotificationServiceTest {
         assertThat(notificationRepository.findById(userId, unreadOld.getId())).isEmpty();
         assertThat(notificationRepository.findById(userId, readRecent.getId())).isPresent();
         assertThat(notificationRepository.findById(userId, unreadRecent.getId())).isPresent();
+    }
+
+    @Test
+    void shouldCascadeDeleteItemsGivenPurge() {
+        notificationService.notifyAsyncOperation("op-purge-1", AsyncOperationType.EXECUTION_KILL, List.of("res-1"));
+        Notification notification = notificationRepository.findByOperationId("op-purge-1").orElseThrow();
+        Notification aged = notification.toBuilder()
+            .createdDate(Instant.now().minus(31, ChronoUnit.DAYS))
+            .updatedDate(Instant.now().minus(31, ChronoUnit.DAYS))
+            .build();
+        notificationRepository.update(aged);
+
+        notificationService.purge();
+
+        assertThat(notificationItemRepository.countByOperationId(notification.getTenantId(), "op-purge-1")).isEmpty();
     }
 
     private Notification notify(String userId, String suffix, boolean read, Instant createdDate) {

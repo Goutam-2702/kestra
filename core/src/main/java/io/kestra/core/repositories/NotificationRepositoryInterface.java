@@ -57,6 +57,13 @@ public interface NotificationRepositoryInterface {
     List<Notification> markAllRead(String userId, Set<String> accessibleTenantIds);
 
     /**
+     * Same selection {@link #deleteByQuery} would delete, without deleting — used to cascade the
+     * purge to {@code notification_items} first (via each notification's {@code tenantId} and
+     * {@code referenceId}).
+     */
+    List<Notification> findToPurge(Instant readOlderThan, Instant createdOlderThan);
+
+    /**
      * Flat-TTL retention purge (see {@code NotificationService#purge()}).
      *
      * @param readOlderThan delete read notifications with {@code updatedDate} older than this instant.

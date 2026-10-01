@@ -62,7 +62,12 @@ public class Notification implements HasUID {
     private String referenceId;
 
     /**
-     * Progress indicators, unused until a progress-reporting producer exists.
+     * Progress indicators for {@link CoreNotificationType#ASYNC_OPERATION}, {@code null} for every
+     * other type. These are <strong>not</strong> persisted: the source of truth is the
+     * {@code notification_items} table (see {@link NotificationItem}), one row per targeted
+     * resource. {@link io.kestra.core.services.NotificationService} populates these fields only on
+     * the copy it returns to a caller or emits as a {@link NotificationEvent}, by aggregating that
+     * table — never on a {@code Notification} passed into {@code create}/{@code update}.
      */
     @Nullable
     private Integer succeededItems;

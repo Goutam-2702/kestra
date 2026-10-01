@@ -67,7 +67,7 @@ public class NotificationController {
         // must still be visible on the *next* poll (> serverTime), never silently dropped. The
         // client dedups by id, so re-returning a row already seen is harmless; missing one is not.
         Instant serverTime = Instant.now();
-        List<Notification> notifications = notificationRepository.findByUserSince(userId, notificationService.accessibleTenantIds(userId), since);
+        List<Notification> notifications = notificationService.findByUserSince(userId, notificationService.accessibleTenantIds(userId), since);
         return ApiNotificationsSince.builder()
             .notifications(notifications)
             .serverTime(serverTime)
@@ -99,7 +99,7 @@ public class NotificationController {
         // Same before-query capture as pollSince(): keep the two serverTime semantics aligned so
         // a client that switches from history to since-polling doesn't gain or lose a gap.
         Instant serverTime = Instant.now();
-        List<Notification> notifications = notificationRepository.findByUser(userId, notificationService.accessibleTenantIds(userId), parseCursor(before), limit);
+        List<Notification> notifications = notificationService.findByUser(userId, notificationService.accessibleTenantIds(userId), parseCursor(before), limit);
         String nextCursor = notifications.size() < limit || notifications.isEmpty()
             ? null
             : toCursor(notifications.get(notifications.size() - 1));

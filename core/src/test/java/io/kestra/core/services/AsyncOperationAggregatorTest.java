@@ -2,6 +2,8 @@ package io.kestra.core.services;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
@@ -9,10 +11,12 @@ import io.kestra.core.async.AsyncOperationProcessedEvent;
 import io.kestra.core.async.AsyncOperationProcessedEvent.Outcome;
 import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.lock.LockService;
-import io.kestra.core.models.notifications.CoreNotificationType;
-import io.kestra.core.models.notifications.Notification;
+import io.kestra.core.models.notifications.NotificationItemOutcome;
 import io.kestra.core.queues.BroadcastQueueInterface;
+import io.kestra.core.repositories.NotificationItemRepositoryInterface;
 import io.kestra.core.repositories.NotificationRepositoryInterface;
+import io.kestra.core.server.AsyncOperationType;
+import io.kestra.core.tenant.TenantService;
 import io.kestra.core.utils.TestsUtils;
 
 import jakarta.inject.Inject;
@@ -36,25 +40,28 @@ class AsyncOperationAggregatorTest {
     private NotificationRepositoryInterface notificationRepository;
 
     @Inject
+    private NotificationItemRepositoryInterface notificationItemRepository;
+
+    @Inject
     private LockService lockService;
 
     @Test
-    void shouldIncrementCountersWhenProcessedEventsArrive() throws Exception {
+    void shouldFlipItemOutcomesWhenProcessedEventsArrive() throws Exception {
         assertThat(aggregator).isNotNull();
 
-        String userId = TestsUtils.randomString(this.getClass().getSimpleName());
         String operationId = TestsUtils.randomString(this.getClass().getSimpleName());
-        notificationService.notify(userId, "tenantA", CoreNotificationType.ASYNC_OPERATION, "title", operationId, 3);
+        notificationService.notifyAsyncOperation(operationId, AsyncOperationType.EXECUTION_KILL, List.of("item-1", "item-2", "item-3"));
 
-        asyncOperationQueue.emit(new AsyncOperationProcessedEvent(operationId, "tenantA", "item-1", Outcome.SUCCEEDED, null, Instant.now()));
-        asyncOperationQueue.emit(new AsyncOperationProcessedEvent(operationId, "tenantA", "item-2", Outcome.SUCCEEDED, null, Instant.now()));
-        asyncOperationQueue.emit(new AsyncOperationProcessedEvent(operationId, "tenantA", "item-3", Outcome.FAILED, "boom", Instant.now()));
+        asyncOperationQueue.emit(new AsyncOperationProcessedEvent(operationId, TenantService.MAIN_TENANT, "item-1", Outcome.SUCCEEDED, null, Instant.now()));
+        asyncOperationQueue.emit(new AsyncOperationProcessedEvent(operationId, TenantService.MAIN_TENANT, "item-2", Outcome.SUCCEEDED, null, Instant.now()));
+        asyncOperationQueue.emit(new AsyncOperationProcessedEvent(operationId, TenantService.MAIN_TENANT, "item-3", Outcome.FAILED, "boom", Instant.now()));
 
         await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
         {
-            Notification reloaded = notificationRepository.findByOperationId(operationId).orElseThrow();
-            assertThat(reloaded.getSucceededItems()).isEqualTo(2);
-            assertThat(reloaded.getFailedItems()).isEqualTo(1);
+            assertThat(notificationRepository.findByOperationId(operationId)).isPresent();
+            Map<NotificationItemOutcome, Long> counts = notificationItemRepository.countByOperationId(TenantService.MAIN_TENANT, operationId);
+            assertThat(counts.get(NotificationItemOutcome.SUCCEEDED)).isEqualTo(2L);
+            assertThat(counts.get(NotificationItemOutcome.FAILED)).isEqualTo(1L);
         });
     }
 
@@ -66,18 +73,18 @@ class AsyncOperationAggregatorTest {
         try {
             competingInstance.tryBecomeLeaderAndSubscribe();
 
-            String userId = TestsUtils.randomString(this.getClass().getSimpleName());
             String operationId = TestsUtils.randomString(this.getClass().getSimpleName());
-            notificationService.notify(userId, "tenantA", CoreNotificationType.ASYNC_OPERATION, "title", operationId, 1);
+            notificationService.notifyAsyncOperation(operationId, AsyncOperationType.EXECUTION_KILL, List.of("item-1"));
 
-            asyncOperationQueue.emit(new AsyncOperationProcessedEvent(operationId, "tenantA", "item-1", Outcome.SUCCEEDED, null, Instant.now()));
+            asyncOperationQueue.emit(new AsyncOperationProcessedEvent(operationId, TenantService.MAIN_TENANT, "item-1", Outcome.SUCCEEDED, null, Instant.now()));
 
             // pollDelay gives a losing subscriber time to (wrongly) double-process before asserting
-            // the count stayed at exactly one.
+            // the outcome settled correctly.
             await().pollDelay(Duration.ofSeconds(2)).atMost(Duration.ofSeconds(10)).untilAsserted(() ->
             {
-                Notification reloaded = notificationRepository.findByOperationId(operationId).orElseThrow();
-                assertThat(reloaded.getSucceededItems()).isEqualTo(1);
+                assertThat(notificationRepository.findByOperationId(operationId)).isPresent();
+                Map<NotificationItemOutcome, Long> counts = notificationItemRepository.countByOperationId(TenantService.MAIN_TENANT, operationId);
+                assertThat(counts.get(NotificationItemOutcome.SUCCEEDED)).isEqualTo(1L);
             });
         } finally {
             competingInstance.shutdown();

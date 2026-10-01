@@ -3,6 +3,7 @@ package io.kestra.webserver.services;
 import java.time.Duration;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeoutException;
 import java.util.function.BiConsumer;
@@ -372,23 +373,24 @@ public class TriggerStateService {
      */
     public ApiAsyncOperationResponse toggleAllMatching(String tenant, List<QueryFilter> filters, boolean disabled, @Nullable Boolean recoverMissedSchedules) {
         String operationId = IdUtils.create();
-        int count = triggerRepository.find(tenant, filters)
+        List<String> toggledIds = triggerRepository.find(tenant, filters)
             .map(trigger ->
             {
                 TriggerId id = TriggerId.of(trigger);
                 try {
                     validateToggleable(id);
                     triggerEventQueue.send(new SetDisableTrigger(id, disabled, recoverMissedSchedules).withOperationId(operationId));
-                    return 1;
+                    return id.uid();
                 } catch (NotFoundException ignored) {
-                    return 0;
+                    return null;
                 }
             })
-            .reduce(Integer::sum)
+            .filter(Objects::nonNull)
+            .collectList()
             .blockOptional()
-            .orElse(0);
-        notificationService.notifyAsyncOperation(operationId, disabled ? AsyncOperationType.TRIGGER_DISABLE : AsyncOperationType.TRIGGER_ENABLE, count);
-        return new ApiAsyncOperationResponse(operationId, count);
+            .orElse(List.of());
+        notificationService.notifyAsyncOperation(operationId, disabled ? AsyncOperationType.TRIGGER_DISABLE : AsyncOperationType.TRIGGER_ENABLE, toggledIds);
+        return new ApiAsyncOperationResponse(operationId, toggledIds.size());
     }
 
     /**
@@ -476,7 +478,7 @@ public class TriggerStateService {
 
     private ApiAsyncOperationResponse submitBatch(List<TriggerId> triggers, BiConsumer<TriggerId, String> emit, AsyncOperationType operationType) {
         String operationId = IdUtils.create();
-        notificationService.notifyAsyncOperation(operationId, operationType, triggers.size());
+        notificationService.notifyAsyncOperation(operationId, operationType, triggers.stream().map(TriggerId::uid).toList());
         for (TriggerId id : triggers) {
             emit.accept(id, operationId);
         }

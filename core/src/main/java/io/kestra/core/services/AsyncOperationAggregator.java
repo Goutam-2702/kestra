@@ -3,6 +3,7 @@ package io.kestra.core.services;
 import io.kestra.core.annotations.RequiresExecutor;
 import io.kestra.core.async.AsyncOperationProcessedEvent;
 import io.kestra.core.lock.LockService;
+import io.kestra.core.models.notifications.NotificationItemOutcome;
 import io.kestra.core.queues.BroadcastQueueInterface;
 import io.kestra.core.queues.QueueSubscriber;
 import io.kestra.core.utils.Disposable;
@@ -68,10 +69,11 @@ public class AsyncOperationAggregator {
                     if (log.isTraceEnabled()) {
                         log.trace("AsyncOperationProcessedEvent received: {}", event);
                     }
-                    switch (event.outcome()) {
-                        case SUCCEEDED -> notificationService.incrementAsyncOperationSucceededItems(event.operationId(), 1);
-                        case FAILED -> notificationService.incrementAsyncOperationFailedItems(event.operationId(), 1);
-                    }
+                    NotificationItemOutcome outcome = switch (event.outcome()) {
+                        case SUCCEEDED -> NotificationItemOutcome.SUCCEEDED;
+                        case FAILED -> NotificationItemOutcome.FAILED;
+                    };
+                    notificationService.recordAsyncOperationItemOutcome(event.operationId(), event.itemId(), outcome);
                 } catch (Exception exception) {
                     log.error("Error while processing AsyncOperationProcessedEvent", exception);
                 }

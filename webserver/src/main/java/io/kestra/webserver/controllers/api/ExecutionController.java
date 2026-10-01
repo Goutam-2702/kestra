@@ -2970,7 +2970,7 @@ public class ExecutionController {
         List<Execution> executions,
         ThrowingBiConsumer<Execution, String> emit) throws QueueException {
         String operationId = IdUtils.create();
-        notificationService.notifyAsyncOperation(operationId, operationType, executions.size());
+        notificationService.notifyAsyncOperation(operationId, operationType, executions.stream().map(Execution::getId).toList());
         for (Execution execution : executions) {
             emit.accept(execution, operationId);
         }

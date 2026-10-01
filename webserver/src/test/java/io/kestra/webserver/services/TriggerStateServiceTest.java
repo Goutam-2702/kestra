@@ -81,7 +81,7 @@ class TriggerStateServiceTest {
 
         triggerStateService.unlockAllByIds(List.of(triggerId));
 
-        verify(notificationService, times(1)).notifyAsyncOperation(any(), eq(AsyncOperationType.TRIGGER_UNLOCK), eq(1));
+        verify(notificationService, times(1)).notifyAsyncOperation(any(), eq(AsyncOperationType.TRIGGER_UNLOCK), eq(List.of(triggerId.uid())));
     }
 
     @Test

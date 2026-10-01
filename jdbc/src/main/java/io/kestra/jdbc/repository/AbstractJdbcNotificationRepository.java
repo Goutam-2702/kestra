@@ -150,11 +150,18 @@ public class AbstractJdbcNotificationRepository extends AbstractJdbcCrudReposito
     }
 
     @Override
-    public int deleteByQuery(Instant readOlderThan, Instant createdOlderThan) {
-        Condition condition = field("read").isTrue().and(field("updated_date").lessThan(toOffsetDateTime(readOlderThan)))
-            .or(field("created_date").lessThan(toOffsetDateTime(createdOlderThan)));
+    public List<Notification> findToPurge(Instant readOlderThan, Instant createdOlderThan) {
+        return find(DSL.noCondition(), purgeCondition(readOlderThan, createdOlderThan));
+    }
 
-        return purge(DSL.noCondition(), condition);
+    @Override
+    public int deleteByQuery(Instant readOlderThan, Instant createdOlderThan) {
+        return purge(DSL.noCondition(), purgeCondition(readOlderThan, createdOlderThan));
+    }
+
+    private Condition purgeCondition(Instant readOlderThan, Instant createdOlderThan) {
+        return field("read").isTrue().and(field("updated_date").lessThan(toOffsetDateTime(readOlderThan)))
+            .or(field("created_date").lessThan(toOffsetDateTime(createdOlderThan)));
     }
 
     /**

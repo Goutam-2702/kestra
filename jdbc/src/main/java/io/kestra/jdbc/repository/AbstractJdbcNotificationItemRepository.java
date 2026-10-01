@@ -1,0 +1,81 @@
+package io.kestra.jdbc.repository;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
+
+import org.jooq.Condition;
+import org.jooq.impl.DSL;
+
+import io.kestra.core.models.notifications.NotificationItem;
+import io.kestra.core.models.notifications.NotificationItemOutcome;
+import io.kestra.core.repositories.NotificationItemRepositoryInterface;
+
+/**
+ * {@code notification_items} is not tenant-scoped the way most tables are: like {@code notifications}
+ * (see {@link AbstractJdbcNotificationRepository}), every query builds its own condition instead of
+ * relying on the inherited {@code defaultFilter(tenantId)}/{@code defaultFilter()}, which are
+ * neutralized here.
+ * <p>
+ * Every operation-scoped lookup (tallying, purge) filters through the {@code (tenant_id,
+ * operation_id)} index rather than the physical {@code "key"} column.
+ */
+public class AbstractJdbcNotificationItemRepository extends AbstractJdbcCrudRepository<NotificationItem> implements NotificationItemRepositoryInterface {
+
+    public AbstractJdbcNotificationItemRepository(io.kestra.jdbc.AbstractJdbcRepository<NotificationItem> jdbcRepository) {
+        super(jdbcRepository);
+    }
+
+    @Override
+    public List<NotificationItem> create(List<NotificationItem> items) {
+        saveBatch(items);
+        return items;
+    }
+
+    @Override
+    public boolean updateOutcome(String operationId, String resourceId, NotificationItemOutcome outcome) {
+        Optional<NotificationItem> existing = findOne(
+            DSL.noCondition(),
+            field("operation_id").eq(operationId).and(field("resource_id").eq(resourceId))
+        );
+
+        existing.ifPresent(item -> update(item.toBuilder().outcome(outcome).build()));
+        return existing.isPresent();
+    }
+
+    @Override
+    public Map<NotificationItemOutcome, Long> countByOperationId(String tenantId, String operationId) {
+        return find(DSL.noCondition(), tenantAndOperationCondition(tenantId, operationId)).stream()
+            .collect(Collectors.groupingBy(NotificationItem::getOutcome, Collectors.counting()));
+    }
+
+    @Override
+    public int deleteByOperationIds(List<TenantOperationId> operationIds) {
+        if (operationIds.isEmpty()) {
+            return 0;
+        }
+
+        Condition condition = operationIds.stream()
+            .map(ref -> tenantAndOperationCondition(ref.tenantId(), ref.operationId()))
+            .reduce(Condition::or)
+            .orElseThrow();
+
+        return purge(DSL.noCondition(), condition);
+    }
+
+    private Condition tenantAndOperationCondition(String tenantId, String operationId) {
+        Condition tenantCondition = tenantId == null ? field("tenant_id").isNull() : field("tenant_id").eq(tenantId);
+        return tenantCondition.and(field("operation_id").eq(operationId));
+    }
+
+    @Override
+    protected Condition defaultFilter(String tenantId) {
+        return DSL.noCondition();
+    }
+
+    @Override
+    protected Condition defaultFilter() {
+        return DSL.noCondition();
+    }
+}
