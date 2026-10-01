@@ -38,6 +38,14 @@ public interface NotificationItemRepositoryInterface {
     Map<NotificationItemOutcome, Long> countByOperationId(@Nullable String tenantId, String operationId);
 
     /**
+     * Resource ids of the {@code (tenantId, operationId)} items, optionally narrowed to one
+     * {@code outcome}, via the {@code (tenantId, operationId)} index. Used by Elasticsearch/OpenSearch
+     * execution search to resolve {@code operationId}/{@code operationOutcome} filters, since that
+     * backend has no cross-index join/EXISTS equivalent to the JDBC correlated subquery.
+     */
+    List<String> findResourceIds(@Nullable String tenantId, String operationId, @Nullable NotificationItemOutcome outcome);
+
+    /**
      * Retention purge, cascaded from {@code NotificationService#purge()}: deletes every item row
      * belonging to any of the given (already-purged) operations, via the
      * {@code (tenantId, operationId)} index.

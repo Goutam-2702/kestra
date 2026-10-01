@@ -59,6 +59,26 @@ public class AbstractJdbcNotificationItemRepository extends AbstractJdbcCrudRepo
     }
 
     @Override
+    public List<String> findResourceIds(String tenantId, String operationId, NotificationItemOutcome outcome) {
+        Condition condition = tenantAndOperationCondition(tenantId, operationId);
+        if (outcome != null) {
+            condition = condition.and(field("outcome").eq(outcome.name()));
+        }
+        Condition finalCondition = condition;
+
+        return this.jdbcRepository
+            .getDslContextWrapper()
+            .transactionResult(
+                configuration -> DSL
+                    .using(configuration)
+                    .select(field("resource_id", String.class))
+                    .from(this.jdbcRepository.getTable())
+                    .where(finalCondition)
+                    .fetch(r -> r.value1())
+            );
+    }
+
+    @Override
     public int deleteByOperationIds(List<TenantOperationId> operationIds) {
         if (operationIds.isEmpty()) {
             return 0;

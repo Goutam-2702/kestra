@@ -88,6 +88,41 @@ public abstract class AbstractNotificationItemRepositoryTest {
     }
 
     @Test
+    void findResourceIds_returnsAllResourceIdsForOperation() {
+        String operationId = TestsUtils.randomString(this.getClass().getSimpleName());
+        notificationItemRepository.create(
+            List.of(
+                item(operationId, "res-1", "tenantA"),
+                item(operationId, "res-2", "tenantA")
+            )
+        );
+
+        assertThat(notificationItemRepository.findResourceIds("tenantA", operationId, null))
+            .containsExactlyInAnyOrder("res-1", "res-2");
+    }
+
+    @Test
+    void findResourceIds_narrowsToOutcome() {
+        String operationId = TestsUtils.randomString(this.getClass().getSimpleName());
+        notificationItemRepository.create(
+            List.of(
+                item(operationId, "res-1", "tenantA"),
+                item(operationId, "res-2", "tenantA")
+            )
+        );
+        notificationItemRepository.updateOutcome(operationId, "res-1", NotificationItemOutcome.FAILED);
+        notificationItemRepository.updateOutcome(operationId, "res-2", NotificationItemOutcome.SUCCEEDED);
+
+        assertThat(notificationItemRepository.findResourceIds("tenantA", operationId, NotificationItemOutcome.FAILED))
+            .containsExactly("res-1");
+    }
+
+    @Test
+    void findResourceIds_unknownOperationIdReturnsEmpty() {
+        assertThat(notificationItemRepository.findResourceIds("tenantA", "unknown-operation-id", null)).isEmpty();
+    }
+
+    @Test
     void deleteByOperationIds() {
         String keep = TestsUtils.randomString(this.getClass().getSimpleName());
         String purge1 = TestsUtils.randomString(this.getClass().getSimpleName());
