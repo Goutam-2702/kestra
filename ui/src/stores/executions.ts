@@ -166,7 +166,6 @@ export const useExecutionsStore = defineStore("executions", () => {
     const progressEvents = ref<{taskId: string; taskRunId: string; step: string; timestamp: string}[]>([])
     const flow = ref<FlowForExecution | undefined>(undefined)
     const flowGraph = ref<FlowGraph | undefined>(undefined)
-    const flowGraphError = ref(false)
     const taskRunSelections = ref<Map<string, string>>(new Map())
     const namespaces = ref<string[]>([])
     const flowsExecutable = ref<FlowForExecution[]>([])
@@ -176,7 +175,6 @@ export const useExecutionsStore = defineStore("executions", () => {
     watch(execution, (newExecution) => {
         if(!newExecution){
             flowGraph.value = undefined
-            flowGraphError.value = false
             flow.value = undefined
             taskRunSelections.value.clear()
         }
@@ -468,6 +466,8 @@ export const useExecutionsStore = defineStore("executions", () => {
 
     const throttledExecutionUpdate = throttle((parsedExecution: Execution) => {
         const flowValue = flow.value
+        execution.value = parsedExecution
+        const currentExecution = execution.value
 
         if ((!flowValue ||
             parsedExecution.flowId !== flowValue.id ||
@@ -480,11 +480,11 @@ export const useExecutionsStore = defineStore("executions", () => {
                     revision: route.query.revision?.toString(),
                 },
             ).then(() => {
-                execution.value = parsedExecution
+                if (execution.value === currentExecution) {
+                    execution.value = parsedExecution
+                }
             })
         }
-
-        execution.value = parsedExecution
     }, 500)
 
     /**
@@ -760,13 +760,7 @@ export const useExecutionsStore = defineStore("executions", () => {
 
     const loadAugmentedGraph = async (options: GraphOptions) => {
         const params = options.params ? options.params : {}
-        let graph: FlowGraph
-        try {
-            graph = await fetchGraph({id: options.id, params})
-        } catch (error) {
-            flowGraphError.value = true
-            throw error
-        }
+        const graph = await fetchGraph({id: options.id, params})
         // Augment the graph with additional properties
 
         const subflowPaths = graph.clusters
@@ -809,7 +803,6 @@ export const useExecutionsStore = defineStore("executions", () => {
 
         // force refresh - Create a new object reference to trigger reactivity
         flowGraph.value = Object.assign({}, graph)
-        flowGraphError.value = false
 
         return graph
     }
@@ -905,7 +898,6 @@ export const useExecutionsStore = defineStore("executions", () => {
         progressEvents,
         flow,
         flowGraph,
-        flowGraphError,
         namespaces,
         flowsExecutable,
         // Actions
