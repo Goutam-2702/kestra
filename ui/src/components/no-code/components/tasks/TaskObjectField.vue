@@ -1,21 +1,25 @@
 <template>
-    <component
-        v-if="simpleType === 'list'"
-        ref="taskComponent"
-        :is="type"
-        v-bind="componentProps"
-        :disabled
-        class="mt-1 mb-2 wrapper"
-    />
-    <component
-        v-else-if="frameRoot"
-        ref="taskComponent"
-        :is="type"
-        v-bind="componentProps"
-        :bare="true"
-        :disabled
-        class="wrapper"
-    />
+    <template v-if="simpleType === 'list'">
+        <component
+            ref="taskComponent"
+            :is="type"
+            v-bind="componentProps"
+            :disabled
+            class="mt-1 mb-2 wrapper"
+        />
+        <FieldValidationErrors :errors="fieldErrors" />
+    </template>
+    <template v-else-if="frameRoot">
+        <component
+            ref="taskComponent"
+            :is="type"
+            v-bind="componentProps"
+            :bare="true"
+            :disabled
+            class="wrapper"
+        />
+        <FieldValidationErrors :errors="fieldErrors" />
+    </template>
     <div v-else-if="isNestedObject" class="nested-card">
         <div class="nested-card-head">
             <span class="nested-card-label">{{ fieldKey }}</span>
