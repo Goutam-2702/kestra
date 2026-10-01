@@ -3,7 +3,6 @@ package io.kestra.jdbc.repository;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 import org.jooq.Condition;
 import org.jooq.impl.DSL;
@@ -46,8 +45,17 @@ public class AbstractJdbcNotificationItemRepository extends AbstractJdbcCrudRepo
 
     @Override
     public Map<NotificationItemOutcome, Long> countByOperationId(String tenantId, String operationId) {
-        return find(DSL.noCondition(), tenantAndOperationCondition(tenantId, operationId)).stream()
-            .collect(Collectors.groupingBy(NotificationItem::getOutcome, Collectors.counting()));
+        return this.jdbcRepository
+            .getDslContextWrapper()
+            .transactionResult(
+                configuration -> DSL
+                    .using(configuration)
+                    .select(field("outcome", String.class), DSL.count())
+                    .from(this.jdbcRepository.getTable())
+                    .where(tenantAndOperationCondition(tenantId, operationId))
+                    .groupBy(field("outcome"))
+                    .fetchMap(r -> NotificationItemOutcome.valueOf(r.value1()), r -> r.value2().longValue())
+            );
     }
 
     @Override

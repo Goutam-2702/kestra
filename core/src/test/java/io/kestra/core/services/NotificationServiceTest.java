@@ -6,12 +6,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import io.kestra.core.exceptions.NotFoundException;
 import io.kestra.core.models.notifications.CoreNotificationType;
 import io.kestra.core.models.notifications.Notification;
+import io.kestra.core.models.notifications.NotificationEvent;
 import io.kestra.core.models.notifications.NotificationItemOutcome;
+import io.kestra.core.queues.BroadcastQueueInterface;
 import io.kestra.core.repositories.NotificationItemRepositoryInterface;
 import io.kestra.core.repositories.NotificationRepositoryInterface;
 import io.kestra.core.server.AsyncOperationType;
@@ -28,13 +31,37 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 public abstract class NotificationServiceTest {
 
     @Inject
-    private NotificationService notificationService;
-
-    @Inject
     private NotificationRepositoryInterface notificationRepository;
 
     @Inject
     private NotificationItemRepositoryInterface notificationItemRepository;
+
+    @Inject
+    private BroadcastQueueInterface<NotificationEvent> notificationQueue;
+
+    @Inject
+    private NotificationStreamingService notificationStreamingService;
+
+    @Inject
+    private AccessibleTenantsProvider accessibleTenantsProvider;
+
+    @Inject
+    private TenantService tenantService;
+
+    private NotificationService notificationService;
+
+    @BeforeEach
+    public void initNotificationService() {
+        notificationService = new NotificationService(
+            notificationRepository,
+            notificationItemRepository,
+            notificationQueue,
+            notificationStreamingService,
+            accessibleTenantsProvider,
+            new CurrentUserProvider(),
+            tenantService
+        );
+    }
 
     @Test
     void shouldCreateUnreadNotificationGivenNotify() {
@@ -68,7 +95,7 @@ public abstract class NotificationServiceTest {
     @Test
     void shouldProjectProgressOntoNotificationGivenFindByUser() {
         notificationService.notifyAsyncOperation("op-items-2", AsyncOperationType.EXECUTION_KILL, List.of("res-1", "res-2"));
-        notificationService.recordAsyncOperationItemOutcome("op-items-2", "res-1", NotificationItemOutcome.SUCCEEDED);
+        notificationService.updateNotificationItemOutcome("op-items-2", "res-1", NotificationItemOutcome.SUCCEEDED);
 
         List<Notification> notifications = notificationService.findByUser(CurrentUserProvider.DEFAULT_USER_ID, Set.of(TenantService.MAIN_TENANT), null, 50);
         Notification notification = notifications.stream()
@@ -85,7 +112,7 @@ public abstract class NotificationServiceTest {
     void shouldFlipItemOutcomeGivenRecordAsyncOperationItemOutcome() {
         notificationService.notifyAsyncOperation("op-outcome-1", AsyncOperationType.EXECUTION_KILL, List.of("res-1"));
 
-        notificationService.recordAsyncOperationItemOutcome("op-outcome-1", "res-1", NotificationItemOutcome.SUCCEEDED);
+        notificationService.updateNotificationItemOutcome("op-outcome-1", "res-1", NotificationItemOutcome.SUCCEEDED);
 
         Notification notification = notificationRepository.findByOperationId("op-outcome-1").orElseThrow();
         Map<NotificationItemOutcome, Long> counts = notificationItemRepository.countByOperationId(notification.getTenantId(), "op-outcome-1");
@@ -97,7 +124,7 @@ public abstract class NotificationServiceTest {
     void shouldNoOpGivenRecordAsyncOperationItemOutcomeForUnknownResource() {
         notificationService.notifyAsyncOperation("op-outcome-2", AsyncOperationType.EXECUTION_KILL, List.of("res-1"));
 
-        notificationService.recordAsyncOperationItemOutcome("op-outcome-2", "unknown-resource", NotificationItemOutcome.SUCCEEDED);
+        notificationService.updateNotificationItemOutcome("op-outcome-2", "unknown-resource", NotificationItemOutcome.SUCCEEDED);
 
         Notification notification = notificationRepository.findByOperationId("op-outcome-2").orElseThrow();
         Map<NotificationItemOutcome, Long> counts = notificationItemRepository.countByOperationId(notification.getTenantId(), "op-outcome-2");
@@ -106,7 +133,7 @@ public abstract class NotificationServiceTest {
 
     @Test
     void shouldThrowNotFoundGivenRecordAsyncOperationItemOutcomeWithoutMatchingNotification() {
-        assertThatThrownBy(() -> notificationService.recordAsyncOperationItemOutcome("unknown-op", "res-1", NotificationItemOutcome.SUCCEEDED))
+        assertThatThrownBy(() -> notificationService.updateNotificationItemOutcome("unknown-op", "res-1", NotificationItemOutcome.SUCCEEDED))
             .isInstanceOf(NotFoundException.class);
     }
 

@@ -172,7 +172,7 @@ public class NotificationService {
      *
      * @throws NotFoundException if no notification matches {@code operationId}.
      */
-    public void recordAsyncOperationItemOutcome(String operationId, String resourceId, NotificationItemOutcome outcome) {
+    public void updateNotificationItemOutcome(String operationId, String resourceId, NotificationItemOutcome outcome) {
         Notification notification = notificationRepository.findByOperationId(operationId)
             .orElseThrow(() -> new NotFoundException("No notification found for operationId '" + operationId + "'"));
 
