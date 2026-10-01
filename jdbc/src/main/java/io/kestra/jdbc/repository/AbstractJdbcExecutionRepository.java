@@ -241,9 +241,40 @@ public abstract class AbstractJdbcExecutionRepository extends AbstractJdbcCrudRe
     }
 
     private Condition computeFindCondition(@Nullable List<QueryFilter> filters, @Nullable DateFilter dateFilter) {
-        boolean hasKindFilter = filters != null && filters.stream().anyMatch(AbstractJdbcExecutionRepository::containsLeafForKind);
-        Condition dateFilterCondition = buildDateFilterCondition(filters, dateFilter);
-        return hasKindFilter ? dateFilterCondition : dateFilterCondition.and(NORMAL_KIND_CONDITION);
+        // Validated here, on the full list, because OPERATION_ID/OPERATION_OUTCOME leaves are
+        // pulled out below before `remainingFilters` ever reaches the nested `this.filter(...)`
+        // call (in buildDateFilterCondition) that would otherwise run this same validation.
+        QueryFilter.validateQueryFilters(filters, Resource.EXECUTION);
+
+        List<QueryFilter> operationFilters = filters == null ? List.of()
+            : filters.stream()
+                .filter(f -> f.isLeaf() && (f.field() == QueryFilter.Field.OPERATION_ID || f.field() == QueryFilter.Field.OPERATION_OUTCOME))
+                .toList();
+        List<QueryFilter> remainingFilters = filters == null ? null
+            : filters.stream()
+                .filter(f -> !operationFilters.contains(f))
+                .toList();
+
+        boolean hasKindFilter = remainingFilters != null && remainingFilters.stream().anyMatch(AbstractJdbcExecutionRepository::containsLeafForKind);
+        Condition dateFilterCondition = buildDateFilterCondition(remainingFilters, dateFilter);
+        Condition baseCondition = hasKindFilter ? dateFilterCondition : dateFilterCondition.and(NORMAL_KIND_CONDITION);
+        return baseCondition.and(combinedNotificationItemCondition(operationFilters));
+    }
+
+    /**
+     * {@code operationId}/{@code operationOutcome} filtered together must match the same
+     * {@code notification_items} row (an execution can be targeted by more than one bulk
+     * operation), so both predicates are combined into a single correlated {@code EXISTS}
+     * rather than built as two independent ones.
+     */
+    private static Condition combinedNotificationItemCondition(List<QueryFilter> operationFilters) {
+        if (operationFilters.isEmpty()) {
+            return DSL.noCondition();
+        }
+        Condition combined = operationFilters.stream()
+            .map(f -> AbstractJdbcRepository.notificationItemLeafCondition(f.field(), f.value(), f.operation()))
+            .reduce(AbstractJdbcRepository.notificationItemCorrelation(), Condition::and);
+        return DSL.exists(DSL.selectOne().from(AbstractJdbcRepository.NOTIFICATION_ITEMS_TABLE).where(combined));
     }
 
     private static boolean containsLeafForKind(QueryFilter filter) {
