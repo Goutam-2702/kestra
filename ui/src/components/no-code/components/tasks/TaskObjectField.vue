@@ -194,8 +194,6 @@
 
     const pebbleState = ref(false)
 
-    const fieldPath = computed(() => props.rootOverride ?? (props.root ? `${props.root}.${props.fieldKey}` : props.fieldKey))
-
     const validationErrors = inject(FIELD_VALIDATION_ERRORS_INJECTION_KEY, undefined)
     const fieldErrors = computed<string[]>(() => validationErrors?.value.get(fieldPath.value) ?? [])
 
