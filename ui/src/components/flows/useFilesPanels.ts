@@ -154,7 +154,7 @@ export function useFilesPanels(panels: Ref<Panel[]>, namespace: Ref<string | und
         }[] = []
         for(const panel of panels.value){
             for(const tab of panel.tabs as TabLiveWithContent[]){
-                if(!tab.uid.startsWith(`${CODE_PREFIX}-`) || !tab.content || !tab.path || !tab.dirty){
+                if(!tab.uid.startsWith(`${CODE_PREFIX}-`) || tab.content === undefined || !tab.path || !tab.dirty){
                     continue
                 }
                 if(namespace.value === undefined){
@@ -174,8 +174,13 @@ export function useFilesPanels(panels: Ref<Panel[]>, namespace: Ref<string | und
             // parallelize saving of files
             await Promise.all(
                 files.map(file => namespacesStore.saveOrCreateFile(file.file)
-                    // only remove the dirty flag once the file was saved
-                    .then(() => file.tab.dirty = false)),
+                    // only remove the dirty flag once the file was saved, and only if nothing was typed meanwhile
+                    .then(() => {
+                        if (file.tab.content === file.file.content) {
+                            externalContentUpdates.value[file.file.path] = {content: file.file.content}
+                            file.tab.dirty = false
+                        }
+                    })),
             )
         }
     }

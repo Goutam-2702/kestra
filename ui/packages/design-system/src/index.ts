@@ -13,6 +13,9 @@ import {
 import type {I18n} from "vue-i18n"
 import {registerDesignSystemI18n} from "./i18n"
 
+type InstalledApp = App & {
+    [INSTALLED_KEY]?: boolean
+}
 // defineAsyncComponent names its wrapper "AsyncComponentWrapper"; keeping the
 // real name lets consumers stub the component by name in tests and read it in
 // devtools, exactly as they could before it was made async.
@@ -85,7 +88,7 @@ const KsEditor = asyncComponent("KsEditor",
 ) as unknown as typeof KsEditorSfc
 export type {KsEditorSchemaType, KsEditorExposes, EditorOptions, KsEditorOptions} from "./utils/editorTypes"
 export {TASK_ICON_INJECTION_KEY, useTaskIcon} from "./composables/taskIcon"
-export type {TaskIconProps} from "./composables/taskIcon"
+export type {TaskIconProps, PluginIconData, PluginIconMap} from "./composables/taskIcon"
 export {findDuplicateTaskIds} from "./utils/yamlValidation"
 export type {EditorMarker} from "./utils/yamlValidation"
 export {isOffsetInPebbleBlock} from "./utils/pebbleBlock"
@@ -134,6 +137,7 @@ import KsSelect from "./components/Form/KsSelect/KsSelect.vue"
 import KsSideBar from "./components/Navigation/KsSideBar/KsSideBar.vue"
 import KsSideBarItem from "./components/Navigation/KsSideBar/KsSideBarItem.vue"
 import KsSideBarSection from "./components/Navigation/KsSideBar/KsSideBarSection.vue"
+import KsSelectableListItem from "./components/Navigation/KsSelectableListItem.vue"
 import KsSkeleton from "./components/Data/KsSkeleton.vue"
 import KsSplitter from "./components/Basic/KsSplitter/KsSplitter.vue"
 import KsSplitterPanel from "./components/Basic/KsSplitter/KsSplitterPanel.vue"
@@ -201,11 +205,14 @@ export type {PathSegments, Scheduled} from "./utils/lang"
 export * as State from "./utils/state"
 export {LOG_LEVELS, STATES} from "./utils/state"
 export {SECTIONS, CLUSTER_PREFIX} from "./utils/constants"
+export {editorFontFamily} from "./utils/editorFont"
 export {dayjs, type Dayjs} from "./date/index"
 export type {KsChartSeriesItem} from "./components/Charts/KsEchart.vue"
 export type {KsGraphNode, KsGraphEdge} from "./components/Charts/KsGraph.vue"
 export type {KsBreadcrumbItem, KsBreadcrumbLoader} from "./components/Navigation/KsBreadcrumb/types"
 export {Comparators} from "./components/Data/KsDataTable/filter/utils/filterTypes"
+export {ALL_TIME_RANGE} from "./components/Data/KsDataTable/filter/utils/constants"
+export {normalizeRelativeDate} from "./components/Data/KsDataTable/filter/utils/relativeDates"
 export type {InputInstance, FormItemRule, FormRules, FormInstance, CascaderOption, CascaderProps} from "element-plus"
 export {TooltipType, ChartRenderer, ChartFeature, categoryLabel} from "./utils/chart"
 export {designSystemLocale, setDesignSystemLocale, registerDesignSystemI18n} from "./i18n"
@@ -368,6 +375,7 @@ const components: Record<string, Component> = {
     KsSideBar,
     KsSideBarItem,
     KsSideBarSection,
+    KsSelectableListItem,
     KsSkeleton,
     KsSplitter,
     KsSplitterPanel,
@@ -480,6 +488,7 @@ export {
     KsSideBar,
     KsSideBarItem,
     KsSideBarSection,
+    KsSelectableListItem,
     KsSkeleton,
     KsSplitter,
     KsSplitterPanel,
@@ -516,13 +525,14 @@ export {
 
 const KestraDesignSystem = {
     install(app: App) {
-        if (!(app as any)[INSTALLED_KEY]) {
+        const installedApp = app as InstalledApp
+        if (!installedApp[INSTALLED_KEY]) {
             // Every Ks* component imports its own El* dependency directly, so global registration
             // is unneeded and only defeats tree-shaking of the ~96 Element Plus components. The
             // services below still need app.use(): it's what wires their _context to this app, so
             // their detached render trees (e.g. an ElNotification's content) can still resolve
             // globally-registered Ks* components like KsButton/KsMarkdown.
-            (app as any)[INSTALLED_KEY] = true
+            installedApp[INSTALLED_KEY] = true
             provideGlobalConfig({namespace: "kel"}, app, true)
             for (const plugin of [ElInfiniteScroll, ElLoading, ElMessage, ElMessageBox, ElNotification, ElPopoverDirective]) {
                 app.use(plugin)
@@ -625,6 +635,7 @@ declare module "vue" {
         KsSideBar: typeof KsSideBar
         KsSideBarItem: typeof KsSideBarItem
         KsSideBarSection: typeof KsSideBarSection
+        KsSelectableListItem: typeof KsSelectableListItem
         KsSkeleton: typeof KsSkeleton
         KsSplitter: typeof KsSplitter
         KsSplitterPanel: typeof KsSplitterPanel
